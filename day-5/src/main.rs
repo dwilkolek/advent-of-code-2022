@@ -3,7 +3,6 @@
 #![allow(unused_imports)]
 
 use regex::Regex;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -20,9 +19,9 @@ fn main() {
         let split_at = find_split_at(&entries);
         let (state, instructions) = entries.split_at(split_at);
 
-        let mut yard = convert_state_to_yard(state);
+        let mut yard = convert_state_to_yard(state.to_vec());
 
-        let operations = convert_operations(instructions);
+        let operations = convert_operations(instructions.to_vec());
 
         // yard.apply_operations(&operations);
         yard.apply_operations_9001(&operations);
@@ -30,17 +29,16 @@ fn main() {
         yard.top_boxes()
     }
 }
-fn convert_operations(instructions: &[String]) -> Vec<Operation> {
+fn convert_operations(instructions: Vec<String>) -> Vec<Operation> {
     let operations: Vec<Operation> = instructions
-        .to_vec()
         .into_iter()
-        .filter(|l| !l.is_empty())
-        .map(|l| Operation::from_entry(l))
+        .filter(|line| !line.is_empty())
+        .map(|line| Operation::from_entry(&line))
         .collect();
     // println!("Operations: {:?}", operations);
     return operations;
 }
-fn convert_state_to_yard(state: &[String]) -> Yard {
+fn convert_state_to_yard(state: Vec<String>) -> Yard {
     let mut state = state.to_vec();
     // let mut stack_mapping = HashMap::new();
     let stack_positions_regex = Regex::new("([0-9]+)").unwrap();
@@ -53,41 +51,32 @@ fn convert_state_to_yard(state: &[String]) -> Yard {
     let mut yard = Yard::init(stack_count);
 
     //create yard from bottom stack
-    for l in state.into_iter().rev() {
-        read_stack_line(l, &mut yard);
+    for line in state.into_iter().rev() {
+        read_stack_line(&line, &mut yard);
     }
 
     // println!("Yard: {:?}", yard);
     return yard;
 }
 
-fn read_stack_line(stack_row: String, yard: &mut Yard) {
+fn read_stack_line(stack_row: &str, yard: &mut Yard) {
     let box_id_reg = Regex::new("\\[(.)\\]").unwrap();
+
     //Map String to chars
-    let stack_row = stack_row.chars().collect::<Vec<char>>();
-
-    // `[A] ``[B] ` <- each chunk takes 4 characters
-    let stack_row = stack_row.chunks(4).collect::<Vec<&[char]>>().clone();
-
-    //Map chars to chars
-    let stack_row: Vec<String> = stack_row
-        .into_iter()
-        .map(|c| String::from_iter(c))
-        .collect();
-
-    //Trim to `[A] ` to `[A]`
-    let stack_row: Vec<String> = stack_row
-        .into_iter()
-        .map(|c| c.trim().to_string())
-        .collect();
-
-    for (ic, c) in stack_row.into_iter().enumerate() {
-        //is there a box?
-        if box_id_reg.captures(&c).is_some() {
-            for (i, captures) in box_id_reg.captures_iter(&c).enumerate() {
-                let box_id = captures.get(1).unwrap().as_str().chars().nth(0).unwrap();
-                yard.add_to_stack(ic, box_id) // put box on stack
-            }
+    let stack_row = stack_row
+        .chars()
+        .collect::<Vec<char>>()
+        .chunks(4) // `[A] ``[B] ` <- each chunk takes 4 characters
+        .map(|c| c.iter().collect::<String>().trim().to_owned()) //Trim to `[A] ` to `[A]` and return to chars
+        .collect::<Vec<String>>();
+    for (stack_index, c) in stack_row.into_iter().enumerate() {
+        //If box exists then place on stack
+        match box_id_reg.captures(&c) {
+            Some(capture) => yard.add_to_stack(
+                stack_index,
+                capture.get(1).unwrap().as_str().chars().nth(0).unwrap(),
+            ),
+            None => (),
         }
     }
 }
@@ -110,7 +99,7 @@ impl Yard {
     fn init(stack_count: usize) -> Yard {
         let mut stacks = Vec::with_capacity(stack_count);
         println!("Creating Yard with {} stacks", stack_count);
-        for i in 0..stack_count {
+        for _ in 0..stack_count {
             stacks.push(Vec::with_capacity(10000));
         }
         Yard { stacks: stacks }
@@ -160,7 +149,7 @@ struct Operation {
 }
 
 impl Operation {
-    fn from_entry(line: String) -> Operation {
+    fn from_entry(line: &str) -> Operation {
         let re = Regex::new("move ([0-9]+) from ([0-9]+) to ([0-9]+)").unwrap();
         for cap in re.captures(&line).into_iter() {
             return Operation {
