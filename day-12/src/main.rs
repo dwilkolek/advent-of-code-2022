@@ -18,7 +18,7 @@ enum Direction {
 
 fn main() {
     let mut map: Vec<Vec<char>> = vec![];
-    let mut start: (usize, usize) = (0, 0);
+    let mut starts: Vec<(usize, usize)> = vec![];
     let mut end: (usize, usize) = (0, 0);
 
     let mut shortest_opts: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
@@ -30,14 +30,19 @@ fn main() {
             for (col, char) in line.chars().into_iter().enumerate() {
                 match char {
                     'S' => {
-                        start = (row, col);
+                        starts.push((row, col));
                         row_vec.push('a')
                     }
                     'E' => {
                         end = (row, col);
                         row_vec.push('z')
                     }
-                    _ => row_vec.push(char),
+                    c => {
+                        if c == 'a' {
+                            starts.push((row, col));
+                        }
+                        row_vec.push(char)
+                    }
                 };
             }
             map.push(row_vec);
@@ -45,8 +50,8 @@ fn main() {
     }
 
     println!("{:?}", map);
-
-    match go(&map, vec![end], &start, &mut shortest_opts) {
+    println!("Possible endings: {}", starts.len());
+    match go(&map, vec![end], &starts, &mut shortest_opts) {
         Some(route) => {
             println!("Steps: {}", route.len() - 1);
             draw_route(&map, &route);
@@ -59,8 +64,8 @@ fn main() {
 
 fn go(
     map: &Vec<Vec<char>>,
-    mut steps: Vec<(usize, usize)>,
-    end: &(usize, usize),
+    steps: Vec<(usize, usize)>,
+    ends: &Vec<(usize, usize)>,
     shortest_opts: &mut HashMap<(usize, usize), Vec<(usize, usize)>>,
 ) -> Option<Vec<(usize, usize)>> {
     // draw_route(map, &steps);
@@ -72,7 +77,7 @@ fn go(
     ];
 
     let last = steps.last().unwrap().clone();
-    if end.0 == last.0 && end.1 == last.1 {
+    if ends.contains(&last) {
         return Some(steps);
     } else {
         let mut min_steps = usize::MAX;
@@ -101,7 +106,7 @@ fn go(
                     let mut tmp_steps = steps.clone();
                     tmp_steps.push(next_pos);
                     shortest_opts.insert(next_pos, tmp_steps.clone());
-                    match go(map, tmp_steps, end, shortest_opts) {
+                    match go(map, tmp_steps, ends, shortest_opts) {
                         Some(steps) => {
                             if steps.len() < min_steps {
                                 min_steps = steps.len();
