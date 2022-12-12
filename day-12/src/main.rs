@@ -1,28 +1,86 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_imports)]
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::f32::consts::E;
-use std::io::{self, BufRead, Write};
+// #![allow(dead_code)]
+// #![allow(unused_variables)]
+// #![allow(unused_imports)]
+use std::collections::{HashSet, VecDeque};
+use std::io::{self, BufRead};
 use std::path::Path;
 use std::vec;
-use std::{thread, time};
 
-enum Direction {
-    Up,
-    Down,
-    Left,
-    Right,
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+struct Point {
+    x: usize,
+    y: usize,
+    height: usize,
+}
+
+impl Point {
+    fn new(x: usize, y: usize, height: usize) -> Point {
+        Point { x, y, height }
+    }
+}
+
+#[derive(Debug)]
+struct Map<'a> {
+    points: Vec<Vec<Point>>,
+    deq: VecDeque<(&'a Point, usize)>,
+}
+
+impl<'a> Map<'a> {
+    fn neighbours(points: &Vec<Vec<Point>>, row: usize, col: usize) -> Vec<&Point> {
+        let current_height = points[row][col].height;
+        let mut options: Vec<&Point> = Vec::new();
+        if row > 0 {
+            Map::add_if_ok(&points[row - 1][col], current_height, &mut options);
+        }
+        if row < points.len() - 1 {
+            Map::add_if_ok(&points[row + 1][col], current_height, &mut options);
+        }
+        if col > 0 {
+            Map::add_if_ok(&points[row][col - 1], current_height, &mut options);
+        }
+        if col < points[0].len() - 1 {
+            Map::add_if_ok(&points[row][col + 1], current_height, &mut options);
+        }
+        options
+    }
+
+    fn add_if_ok(point: &'a Point, max_height: usize, options: &mut Vec<&'a Point>) {
+        if point.height >= max_height - 1 {
+            options.push(point);
+        }
+    }
+
+    fn visit(&'a mut self, goals: &Vec<Point>) -> usize {
+        let d = &mut self.deq;
+        let mut visited: HashSet<Point> = HashSet::new();
+        while let Some(next) = d.pop_front() {
+            // println!("Processing: {:?}", next);
+            if goals.contains(&next.0) {
+                return next.1;
+            } else {
+                let neighbours = Map::neighbours(&self.points, next.0.x, next.0.y);
+                for n in neighbours.into_iter() {
+                    if !visited.contains(&n) {
+                        visited.insert(n.clone());
+                        // println!("Adding neighbour: {:?}", n);
+                        d.push_back((n, next.1 + 1));
+                    } else {
+                        // println!("Discarding neighbour: {:?}", n);
+                    }
+                }
+            }
+        }
+        return usize::MAX;
+    }
 }
 
 fn main() {
-    let mut map: Vec<Vec<char>> = vec![];
-    let mut starts: Vec<(usize, usize)> = vec![];
-    let mut end: (usize, usize) = (0, 0);
-
-    let mut shortest_opts: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
-
+    let mut starts: Vec<Point> = vec![];
+    let mut end: Point = Point::new(usize::MAX, usize::MAX, 'a' as usize);
+    let mut map = Map {
+        points: vec![],
+        deq: VecDeque::new(),
+    };
     if let Ok(lines) = read_lines("input.txt") {
         let input: Vec<String> = lines.into_iter().map(|l| l.unwrap()).collect();
         for (row, line) in input.into_iter().enumerate() {
@@ -30,169 +88,27 @@ fn main() {
             for (col, char) in line.chars().into_iter().enumerate() {
                 match char {
                     'S' => {
-                        starts.push((row, col));
-                        row_vec.push('a')
+                        starts.push(Point::new(row, col, 'a' as usize));
+                        row_vec.push(Point::new(row, col, 'a' as usize));
                     }
                     'E' => {
-                        end = (row, col);
-                        row_vec.push('z')
+                        end = Point::new(row, col, 'z' as usize);
+                        row_vec.push(Point::new(row, col, 'z' as usize))
                     }
                     c => {
                         if c == 'a' {
-                            starts.push((row, col));
+                            //part-2
+                            starts.push(Point::new(row, col, 'a' as usize));
                         }
-                        row_vec.push(char)
+                        row_vec.push(Point::new(row, col, char as usize))
                     }
                 };
             }
-            map.push(row_vec);
+            map.points.push(row_vec);
         }
     }
-
-    println!("{:?}", map);
-    println!("Possible endings: {}", starts.len());
-    match go(&map, vec![end], &starts, &mut shortest_opts) {
-        Some(route) => {
-            println!("Steps: {}", route.len() - 1);
-            draw_route(&map, &route);
-        }
-        None => {
-            println!("Not found");
-        }
-    }
-}
-
-fn go(
-    map: &Vec<Vec<char>>,
-    steps: Vec<(usize, usize)>,
-    ends: &Vec<(usize, usize)>,
-    shortest_opts: &mut HashMap<(usize, usize), Vec<(usize, usize)>>,
-) -> Option<Vec<(usize, usize)>> {
-    // draw_route(map, &steps);
-    let all_directions = vec![
-        Direction::Up,
-        Direction::Down,
-        Direction::Left,
-        Direction::Right,
-    ];
-
-    let last = steps.last().unwrap().clone();
-    if ends.contains(&last) {
-        return Some(steps);
-    } else {
-        let mut min_steps = usize::MAX;
-        let mut new_steps: Option<Vec<(usize, usize)>> = None;
-        let all_directions = vec![
-            Direction::Right,
-            Direction::Up,
-            Direction::Down,
-            Direction::Left,
-        ];
-        let mut options: Vec<_> = all_directions
-            .into_iter()
-            .map(|dir| next(map, &last, &dir))
-            .filter(|o| o.is_some())
-            .map(|o| o.unwrap())
-            .collect();
-        options.sort_by(|a, b| a.1.cmp(&b.1));
-        for opt in options {
-            let next_pos = opt.0;
-            if !steps.contains(&next_pos) {
-                let proceed = match shortest_opts.get(&next_pos) {
-                    Some(step_count) => step_count.len() > (steps.len() + 1),
-                    None => true,
-                };
-                if proceed {
-                    let mut tmp_steps = steps.clone();
-                    tmp_steps.push(next_pos);
-                    shortest_opts.insert(next_pos, tmp_steps.clone());
-                    match go(map, tmp_steps, ends, shortest_opts) {
-                        Some(steps) => {
-                            if steps.len() < min_steps {
-                                min_steps = steps.len();
-                                new_steps = Some(steps);
-                            }
-                        }
-                        None => {}
-                    }
-                }
-            }
-        }
-        return new_steps;
-    }
-}
-
-fn found_target(map: &Vec<Vec<char>>, position: &(usize, usize)) -> bool {
-    map[position.0][position.1] == 'E'
-}
-
-fn is_ok(
-    map: &Vec<Vec<char>>,
-    a: &(usize, usize),
-    b: (usize, usize),
-) -> Option<((usize, usize), isize)> {
-    let source = map[a.0][a.1] as isize;
-    let dest = map[b.0][b.1] as isize;
-
-    if dest - source >= -1 {
-        Some((b, (dest - source)))
-    } else {
-        None
-    }
-}
-
-fn draw_route(map: &Vec<Vec<char>>, steps: &Vec<(usize, usize)>) {
-    io::stdout().flush().unwrap();
-    thread::sleep(time::Duration::from_millis(50));
-    for (row_index, row) in map.into_iter().enumerate() {
-        for (col_index, char) in row.into_iter().enumerate() {
-            if steps.contains(&(row_index, col_index)) {
-                print!("{}", "*")
-            } else {
-                print!("{}", char)
-            }
-        }
-        println!()
-    }
-}
-
-fn next(
-    map: &Vec<Vec<char>>,
-    position: &(usize, usize),
-    dir: &Direction,
-) -> Option<((usize, usize), isize)> {
-    let map_rows = map.len();
-    let map_cols = map[0].len();
-    match dir {
-        Direction::Up => {
-            if position.0 == 0 {
-                None
-            } else {
-                is_ok(map, position, (position.0 - 1, position.1))
-            }
-        }
-        Direction::Down => {
-            if position.0 == map_rows - 1 {
-                None
-            } else {
-                is_ok(map, position, (position.0 + 1, position.1))
-            }
-        }
-        Direction::Left => {
-            if position.1 == 0 {
-                None
-            } else {
-                is_ok(map, position, (position.0, position.1 - 1))
-            }
-        }
-        Direction::Right => {
-            if position.1 == map_cols - 1 {
-                None
-            } else {
-                is_ok(map, position, (position.0, position.1 + 1))
-            }
-        }
-    }
+    map.deq.push_back((&end, 0));
+    println!("Minimum required steps: {}", map.visit(&starts));
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<std::fs::File>>>
