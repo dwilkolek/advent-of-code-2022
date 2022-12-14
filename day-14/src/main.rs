@@ -68,6 +68,15 @@ fn main() {
 
         map[0][500] = Material::SAND;
         draw(map);
+
+        {
+            //part 2
+            bottom += 2;
+            for x in 0..1000 {
+                map[bottom][x] = Material::ROCK;
+            }
+        }
+
         let mut units_of_sand = 0;
         let mut current_sand: Option<(usize, usize)> = None;
         loop {
@@ -86,9 +95,15 @@ fn main() {
             } else if map[sand.0 + 1][sand.1 + 1] == Material::VOID {
                 current_sand = Some((sand.0 + 1, sand.1 + 1))
             } else {
+                units_of_sand = units_of_sand + 1;
+                {
+                    //part 2
+                    if sand.0 == 0 && sand.1 == 500 {
+                        break;
+                    }
+                }
                 map[sand.0][sand.1] = Material::SAND;
 
-                units_of_sand = units_of_sand + 1;
                 current_sand = None;
             }
         }
