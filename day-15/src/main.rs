@@ -14,15 +14,10 @@ use std::{thread, vec};
 struct Ap {
     sensor: (i32, i32),
     beacon: (i32, i32),
+    dist: i32,
 }
 
 impl Ap {
-    fn tuning_freq(beacon: (i32, i32)) -> i32 {
-        return beacon.0 * 4000000 + beacon.1;
-    }
-    fn contains(&self, p: (i32, i32)) -> bool {
-        return Ap::dist(self.sensor, self.beacon) >= Ap::dist(self.sensor, p);
-    }
     fn get_coverage(&self, y: i32) -> Vec<(i32, i32)> {
         let mut cov: Vec<_> = vec![];
         let dist = Ap::dist(self.sensor, self.beacon);
@@ -38,6 +33,33 @@ impl Ap {
     fn dist(a: (i32, i32), b: (i32, i32)) -> i32 {
         return (a.0.abs_diff(b.0) + a.1.abs_diff(b.1)) as i32;
     }
+
+    fn range(&self, y: i32) -> Option<(i32, i32)> {
+        if (y > self.sensor.1 + self.dist) {
+            return None;
+        }
+        if (y < self.sensor.1 - self.dist) {
+            return None;
+        }
+        let aa: i32 = self.sensor.1.abs_diff(y) as i32;
+        let diff_at_y = self.dist - aa;
+        let result = (
+            self.sensor.0 - diff_at_y.abs(),
+            self.sensor.0 + diff_at_y.abs(),
+        );
+        // println!("{:?} ", result);
+        return Some(result);
+    }
+    fn in_range(&self, p: (i32, i32)) -> bool {
+        Ap::dist(self.sensor, p) <= self.dist
+    }
+    fn new(sensor: (i32, i32), beacon: (i32, i32)) -> Ap {
+        Ap {
+            sensor,
+            beacon,
+            dist: Ap::dist(sensor, beacon),
+        }
+    }
 }
 
 fn main() {
@@ -51,30 +73,63 @@ fn main() {
         for line in input.into_iter() {
             let cap = reg.captures(&line).unwrap();
 
-            aps.push(Ap {
-                sensor: (
+            aps.push(Ap::new(
+                (
                     cap.get(1).unwrap().as_str().parse().unwrap(),
                     cap.get(2).unwrap().as_str().parse().unwrap(),
                 ),
-                beacon: (
+                (
                     cap.get(3).unwrap().as_str().parse().unwrap(),
                     cap.get(4).unwrap().as_str().parse().unwrap(),
                 ),
-            })
+            ));
         }
 
-        let y = 2000000;
-        let mut coverage_on_y: HashSet<(i32, i32)> = HashSet::new();
-        for (i, ap) in aps.into_iter().enumerate() {
-            println!("Sensor {}", i);
-            ap.get_coverage(y).into_iter().for_each(|p| {
-                if p.1 == y {
-                    coverage_on_y.insert(p);
+        let max = 4000000;
+        for y in 0..4000000 {
+            println!("done: {} ", y);
+            let mut used_ranges: Vec<_> = Vec::new();
+            for ap in &aps {
+                let range = ap.range(y);
+                if let Some(range) = range {
+                    used_ranges.push((range.0.max(0), range.1.min(max)))
                 }
-            })
+            }
+            used_ranges.sort();
+
+            let mut current = 0;
+            loop {
+                match find_next_end(current, &used_ranges) {
+                    Some(next) => current = next,
+                    None => {
+                        let c: i128 = current as i128;
+                        println!("!! {}, {}", c, y);
+                        println!("Your results is {}", (c + 1) * 4000000 + y as i128);
+                        return;
+                    }
+                }
+                if current >= max {
+                    break;
+                }
+            }
+            // if found {
+            //     println!("{} * 4000000 + {} = {}", x, y, x * 4000000 + y);
+            //     return;
+            // }
         }
-        println!("Coverage on Y({}) is: {}", y, coverage_on_y.len() - 1);
+
+        // let x = Ap::new((0, 0), (0, 3));
+        // println!("{:?}", x.range(3))
     }
+}
+
+fn find_next_end(current: i32, used_ranges: &Vec<(i32, i32)>) -> Option<i32> {
+    let best: Vec<i32> = used_ranges
+        .into_iter()
+        .filter(|ur| ur.0 <= current && ur.1 > current)
+        .map(|ur| ur.1)
+        .collect();
+    best.last().cloned()
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<std::fs::File>>>
