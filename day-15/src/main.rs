@@ -1,14 +1,11 @@
-use regex::Regex;
 // #![allow(dead_code)]
 // #![allow(unused_variables)]
 // #![allow(unused_imports)]
-use serde_json::{json, Value};
-use std::char::MAX;
-use std::cmp::Ordering;
+use regex::Regex;
 use std::collections::HashSet;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::{thread, vec};
+use std::vec;
 
 #[derive(Clone)]
 struct Ap {
@@ -35,10 +32,10 @@ impl Ap {
     }
 
     fn range(&self, y: i32) -> Option<(i32, i32)> {
-        if (y > self.sensor.1 + self.dist) {
+        if y > self.sensor.1 + self.dist {
             return None;
         }
-        if (y < self.sensor.1 - self.dist) {
+        if y < self.sensor.1 - self.dist {
             return None;
         }
         let aa: i32 = self.sensor.1.abs_diff(y) as i32;
@@ -47,12 +44,9 @@ impl Ap {
             self.sensor.0 - diff_at_y.abs(),
             self.sensor.0 + diff_at_y.abs(),
         );
-        // println!("{:?} ", result);
         return Some(result);
     }
-    fn in_range(&self, p: (i32, i32)) -> bool {
-        Ap::dist(self.sensor, p) <= self.dist
-    }
+
     fn new(sensor: (i32, i32), beacon: (i32, i32)) -> Ap {
         Ap {
             sensor,
@@ -84,42 +78,50 @@ fn main() {
                 ),
             ));
         }
+    }
+    part1(&aps);
+    part2(&aps);
+}
 
-        let max = 4000000;
-        for y in 0..4000000 {
-            println!("done: {} ", y);
-            let mut used_ranges: Vec<_> = Vec::new();
-            for ap in &aps {
-                let range = ap.range(y);
-                if let Some(range) = range {
-                    used_ranges.push((range.0.max(0), range.1.min(max)))
-                }
+fn part1(aps: &Vec<Ap>) {
+    let y = 2000000;
+    let mut coverage_on_y: HashSet<(i32, i32)> = HashSet::new();
+    for ap in aps.into_iter() {
+        ap.get_coverage(y).into_iter().for_each(|p| {
+            if p.1 == y {
+                coverage_on_y.insert(p);
             }
-            used_ranges.sort();
+        })
+    }
+    println!("Coverage on Y({}) is: {}", y, coverage_on_y.len() - 1);
+}
 
-            let mut current = 0;
-            loop {
-                match find_next_end(current, &used_ranges) {
-                    Some(next) => current = next,
-                    None => {
-                        let c: i128 = current as i128;
-                        println!("!! {}, {}", c, y);
-                        println!("Your results is {}", (c + 1) * 4000000 + y as i128);
-                        return;
-                    }
-                }
-                if current >= max {
-                    break;
-                }
+fn part2(aps: &Vec<Ap>) {
+    let max = 4000000;
+    for y in 0..4000000 {
+        let mut used_ranges: Vec<_> = Vec::new();
+        for ap in aps {
+            let range = ap.range(y);
+            if let Some(range) = range {
+                used_ranges.push((range.0.max(0), range.1.min(max)))
             }
-            // if found {
-            //     println!("{} * 4000000 + {} = {}", x, y, x * 4000000 + y);
-            //     return;
-            // }
         }
+        used_ranges.sort();
 
-        // let x = Ap::new((0, 0), (0, 3));
-        // println!("{:?}", x.range(3))
+        let mut current = 0;
+        loop {
+            match find_next_end(current, &used_ranges) {
+                Some(next) => current = next,
+                None => {
+                    let c: i128 = current as i128;
+                    println!("Part 2 tuning freq: {}", (c + 1) * 4000000 + y as i128);
+                    return;
+                }
+            }
+            if current >= max {
+                break;
+            }
+        }
     }
 }
 
