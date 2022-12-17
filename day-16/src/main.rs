@@ -213,7 +213,8 @@ fn main() {
         &mut routes_cache,
     );
 
-    println!("Part 2 max single: {:?}", part_2.flow_rate(&planner.valves));
+    let thr = part_2.flow_rate(&planner.valves);
+    println!("Part 2 max single: {:?}", thr);
     let mut max = 0;
     let mut routes = routes_cache;
 
@@ -222,10 +223,14 @@ fn main() {
     let rlen = routes.len();
     let mut possible_best = usize::MAX;
     for route_1_i in 0..rlen {
-        for route_2_i in route_1_i..rlen {
-            if route_1_i == 0 && route_2_i == route_1_i {
+        for route_2_i in route_1_i + 1..rlen {
+            if route_1_i == 0 && route_2_i == route_1_i + 1 {
                 possible_best = routes[route_2_i].0 + routes[route_1_i].0;
                 println!("Possible best: {}", possible_best);
+            }
+            let now = routes[route_2_i].0 + routes[route_1_i].0;
+            if now < thr || now < max || possible_best < max {
+                break;
             }
             let mut unique = true;
             let route_1 = &routes[route_1_i];
