@@ -2,14 +2,20 @@
 // #![allow(unused_variables)]
 // #![allow(unused_imports)]
 use regex::Regex;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::vec;
+
+#[derive(Clone, Debug)]
 struct Planner {
     valves: HashMap<String, usize>,
-    routes: HashMap<String, Vec<String>>,
     shortest_paths: HashMap<(String, String), usize>,
+}
+
+struct TravelPlan {
+    next_valve: String,
+    cost: usize,
 }
 
 impl Planner {
@@ -17,35 +23,35 @@ impl Planner {
         let shortest_paths = Planner::all_shortest_routes(&valves, &routes);
         Planner {
             valves,
-            routes,
             shortest_paths,
         }
     }
 
-    fn reasonable_valves(&self, traveler: &TravelState) -> Vec<(String, usize)> {
-        let mut opts: Vec<(String, usize)> = vec![];
+    fn reasonable_valves(&self, state: &TravelState) -> Vec<TravelPlan> {
+        let traveler = &state.traveler;
+        let mut opts: Vec<TravelPlan> = vec![];
         for path in self.shortest_paths.clone() {
             let position_matching = path.0 .0 == traveler.position;
-            let not_opened = !traveler.opened_valves.contains_key(&path.0 .1);
+            let not_opened = !state.opened_valves.contains_key(&path.0 .1);
             let has_budget = traveler.minutes_left > path.1;
 
             if position_matching & not_opened & has_budget {
-                opts.push((path.0 .1, path.1 + 1))
+                opts.push(TravelPlan {
+                    next_valve: path.0 .1,
+                    cost: path.1 + 1,
+                });
             }
         }
-        // let opts: Vec<(String, usize)> = self
-        //     .shortest_paths
-        //     .clone()
-        //     .into_iter()
-        //     .filter(|path| {
-        //         path.0 .1 == traveler.position
-        //             && !traveler.opened_valves.contains_key(&path.0 .1)
-        //             && traveler.minutes_left > path.1
-        //     })
-        //     .map(|path| (path.0 .1, path.1))
-        //     .collect();
-        // println!("{:?}", opts);
-        return opts;
+        if opts.len() > 0 {
+            opts.sort_by(|a, b| {
+                self.valves
+                    .get(&b.next_valve)
+                    .unwrap()
+                    .cmp(self.valves.get(&a.next_valve).unwrap())
+            });
+            return opts;
+        }
+        return vec![];
     }
 
     fn all_shortest_routes(
@@ -53,6 +59,7 @@ impl Planner {
         routes: &HashMap<String, Vec<String>>,
     ) -> HashMap<(String, String), usize> {
         let mut all: HashMap<(String, String), usize> = HashMap::new();
+
         let mut deq = VecDeque::new();
         let meaningfull_valves: Vec<String> = valves
             .clone()
@@ -61,7 +68,6 @@ impl Planner {
             .map(|v| v.0)
             .collect();
 
-        println!("Meaningful valves {:?}", meaningfull_valves);
         for from in meaningfull_valves.clone().into_iter() {
             for to in meaningfull_valves.clone().into_iter() {
                 if from != to {
@@ -81,16 +87,59 @@ impl Planner {
             }
             let available_routes = routes.get(&current_position).unwrap();
             for route in available_routes.into_iter() {
-                if !trace.contains(route) {
+                if !trace.contains(route) && trace.len() < 30 {
                     let mut next_trace = trace.clone();
                     next_trace.push(route.clone());
                     deq.push_back(next_trace);
                 }
             }
         }
-
-        println!("Index: {:?}", all);
         all
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TravelState {
+    traveler: Traveler,
+    opened_valves: HashMap<String, usize>,
+}
+
+#[derive(Clone, Debug)]
+struct Traveler {
+    id: String,
+    position: String,
+    minutes_left: usize,
+    minutes_total: usize,
+}
+
+impl TravelState {
+    fn route(&self) -> Vec<String> {
+        return self.opened_valves.clone().into_keys().collect();
+    }
+    fn action(&self, plan: TravelPlan) -> TravelState {
+        let mut new_opened_valves = self.opened_valves.clone();
+
+        let minutes_after_move = self.traveler.minutes_left - plan.cost;
+        let new_traveler = Traveler {
+            id: self.traveler.id.clone(),
+            position: plan.next_valve.clone(),
+            minutes_left: minutes_after_move,
+            minutes_total: self.traveler.minutes_total,
+        };
+        new_opened_valves.insert(plan.next_valve.clone(), minutes_after_move);
+
+        TravelState {
+            traveler: new_traveler,
+            opened_valves: new_opened_valves,
+        }
+    }
+
+    fn flow_rate(&self, valves: &HashMap<String, usize>) -> usize {
+        let mut flow_rate = 0;
+        for (valve_id, at_minute) in self.opened_valves.iter() {
+            flow_rate += valves.get(valve_id).unwrap() * at_minute;
+        }
+        flow_rate
     }
 }
 
@@ -126,89 +175,95 @@ fn main() {
             );
         }
     }
-    let planner = Planner::new(valves, routes);
 
-    let best = next_action(
+    println!("Start processing");
+
+    let planner = Planner::new(valves, routes);
+    let mut routes_cache = vec![];
+    let part_1 = next_action(
         &planner,
         TravelState {
-            position: "AA".to_owned(),
-            minutes_left: 30,
+            traveler: Traveler {
+                id: "me".to_owned(),
+                position: "AA".to_owned(),
+                minutes_left: 30,
+                minutes_total: 30,
+            },
             opened_valves: HashMap::new(),
-            log: vec![],
         },
+        false,
+        &mut routes_cache,
     );
 
-    println!("{:?}. {:?}", best, best.flow_rate(&planner.valves))
-    // let mut ope = HashMap::new();
-    // ope.insert("EE".to_owned(), 9);
-    // ope.insert("HH".to_owned(), 13);
-    // ope.insert("BB".to_owned(), 25);
-    // ope.insert("JJ".to_owned(), 21);
-    // ope.insert("DD".to_owned(), 28);
-    // ope.insert("CC".to_owned(), 4);
-    // let best = TravelState {
-    //     flow_rate: 1,
-    //     history: vec![],
-    //     opened_valves: ope.clone(),
-    //     minutes_left: 0,
-    //     position: "AA".to_owned(),
-    //     visited_valves: vec![],
-    // };
-    // let mut c_flow = 0;
-    // for min in 0..30 {
-    //     for o in ope.clone().into_iter() {
-    //         if o.1 == (30 - min) {
-    //             c_flow += valves.get(o.0.clone()).un
-    //         }
-    //     }
-    //     println!("Minut {}, flow: {}", min, c_flow)
-    // }
-}
+    println!("Part 1: {:?}", part_1.flow_rate(&planner.valves));
 
-#[derive(Clone, Debug)]
-struct TravelState {
-    position: String,
-    minutes_left: usize,
-    opened_valves: HashMap<String, usize>,
-    log: Vec<String>,
-}
-
-impl TravelState {
-    fn action(&self, next_valve: String, cost: usize) -> TravelState {
-        let mut new_valves = self.opened_valves.clone();
-        let minutes_after_move = self.minutes_left - cost;
-        new_valves.insert(next_valve.clone(), minutes_after_move);
-
-        let mut c_log = self.log.clone();
-
-        c_log.push(format!(
-            "Action to: {}. Cost: {}. Minutes left: {}.",
-            next_valve, cost, minutes_after_move
-        ));
-
+    let mut routes_cache = vec![];
+    let part_2 = next_action(
+        &planner,
         TravelState {
-            position: next_valve,
-            minutes_left: minutes_after_move,
-            opened_valves: new_valves,
-            log: c_log,
-        }
-    }
+            traveler: Traveler {
+                id: "me".to_owned(),
+                position: "AA".to_owned(),
+                minutes_left: 26,
+                minutes_total: 26,
+            },
+            opened_valves: HashMap::new(),
+        },
+        true,
+        &mut routes_cache,
+    );
 
-    fn flow_rate(&self, valves: &HashMap<String, usize>) -> usize {
-        let mut flow_rate = 0;
-        let mut sum = 0;
-        for (valve_id, at_minute) in self.opened_valves.iter() {
-            flow_rate += valves.get(valve_id).unwrap() * at_minute;
+    println!("Part 2 max single: {:?}", part_2.flow_rate(&planner.valves));
+    let mut max = 0;
+    let mut routes = routes_cache;
+
+    routes.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let rlen = routes.len();
+    let mut possible_best = usize::MAX;
+    for route_1_i in 0..rlen {
+        for route_2_i in route_1_i..rlen {
+            if route_1_i == 0 && route_2_i == route_1_i {
+                possible_best = routes[route_2_i].0 + routes[route_1_i].0;
+                println!("Possible best: {}", possible_best);
+            }
+            let mut unique = true;
+            let route_1 = &routes[route_1_i];
+            let route_2 = &routes[route_2_i];
+            for v in route_2.1.clone() {
+                if route_1.1.contains(&v) {
+                    unique = false;
+                    break;
+                }
+            }
+            if unique && max < route_1.0 + route_2.0 {
+                max = route_1.0 + route_2.0;
+                println!("Current part 2 {}", max);
+                if max >= possible_best {
+                    return;
+                }
+            }
         }
-        flow_rate
     }
+    println!("Part 2 {}", max);
 }
 
-fn next_action(planner: &Planner, state: TravelState) -> TravelState {
-    let options = planner.reasonable_valves(&state);
+fn next_action(
+    planner: &Planner,
+    state: TravelState,
+    skip_collecting_routes: bool,
+    routes: &mut Vec<(usize, Vec<String>)>,
+) -> TravelState {
+    let plans = planner.reasonable_valves(&state);
     let mut best_state = state.clone();
-    for option in options.into_iter() {
-        let next_state = next_action(planner, state.action(option.0, option.1));
+    if skip_collecting_routes {
+        let cache_entry = (best_state.flow_rate(&planner.valves), state.route());
+        if !routes.contains(&cache_entry) {
+            routes.push(cache_entry)
+        }
+    }
+    for plan in plans.into_iter() {
+        let next_state = next_action(planner, state.action(plan), skip_collecting_routes, routes);
         if next_state.flow_rate(&planner.valves) > best_state.flow_rate(&planner.valves) {
             best_state = next_state;
         }
