@@ -138,7 +138,7 @@ fn unwind(nodes: &HashMap<String, Node>, cached_results: &HashMap<String, f64>) 
     while let Some(node) = deq.pop_front() {
         if let Node::Compare(a, b) = node {
             if let Some(v) = cached_results.get(a) {
-                target = *v;
+                target = -1.0 * *v;
                 deq.push_front(nodes.get(b).unwrap());
                 continue;
             }
