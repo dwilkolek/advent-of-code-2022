@@ -2,12 +2,16 @@
 // #![allow(unused_variables)]
 // #![allow(unused_imports)]
 
-use std::collections::{hash_map, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::io::{self, BufRead};
 use std::path::Path;
 
 type Position = (usize, usize);
+
+fn dist(a: &Position, b: &Position) -> usize {
+    (a.0.abs_diff(b.0)).pow(2) + (a.1.abs_diff(b.1)).pow(2)
+}
 
 #[derive(Clone, Debug)]
 enum Direction {
@@ -40,11 +44,6 @@ struct Blizzard {
 
 impl Blizzard {
     fn update_position(&mut self, exit: &Position) {
-        // if self.position.0 == 1
-        //     || self.position.1 == 1
-        //     || self.position.0 == exit.0
-        //     || self.position.1 == exit.1 - 1
-        // {
         match self.direction {
             Direction::E => {
                 if self.position.0 == exit.0 {
@@ -75,30 +74,14 @@ impl Blizzard {
                 }
             }
         }
-        // } else {
-        //     match self.direction {
-        //         Direction::E => self.position = (self.position.0 + 1, self.position.1),
-        //         Direction::W => self.position = (self.position.0 - 1, self.position.1),
-        //         Direction::N => self.position = (self.position.0, self.position.1 - 1),
-        //         Direction::S => self.position = (self.position.0, self.position.1 + 1),
-        //     }
-        // }
     }
 }
 
 #[derive(Clone, Debug)]
 struct State {
-    blizzards: Vec<Blizzard>,
     group: Position,
     exit: Position,
     time: usize,
-    history: Vec<State>,
-}
-
-impl State {
-    fn dist(&self) -> usize {
-        (self.exit.0 - self.group.0).pow(2) + (self.exit.1 - self.group.1).pow(2)
-    }
 }
 
 fn main() {
@@ -145,31 +128,45 @@ fn main() {
     }
 
     let state = State {
-        blizzards,
         exit,
         group,
         time: 0,
-        history: vec![],
     };
 
-    draw(&state, &disabled);
+    let mut blizzards_at_time: HashMap<usize, HashSet<Position>> = HashMap::new();
+    let mut i = 0;
+    loop {
+        let mut occupied: HashSet<Position> = HashSet::new();
+        for b in blizzards.iter_mut() {
+            b.update_position(&exit);
+            occupied.insert(b.position);
+        }
+        i += 1;
+        blizzards_at_time.insert(i, occupied);
+        if i > 10000 {
+            break;
+        }
+    }
 
-    eval(state, &disabled)
+    let mut at_exit = eval(state, &disabled, &blizzards_at_time);
+    at_exit.exit = group;
+    let mut at_start = eval(at_exit, &disabled, &blizzards_at_time);
+    at_start.exit = exit;
+    eval(at_start, &disabled, &blizzards_at_time);
 }
 
-fn eval(start: State, disabled: &HashSet<Position>) {
+fn eval(
+    start: State,
+    disabled: &HashSet<Position>,
+    blizzards: &HashMap<usize, HashSet<Position>>,
+) -> State {
     let mut deq = VecDeque::new();
     let mut best_time = usize::MAX;
-    let mut dist_to_exit = usize::MAX;
     let mut best = start.clone();
     let mut unseen: HashSet<_> = HashSet::new();
-
+    let time_limit = start.time + 500;
     deq.push_back(start);
     while let Some(mut state) = deq.pop_front() {
-        let mut occupied = HashSet::new();
-
-        state.time += 1;
-
         let key = (state.time, state.group);
         if unseen.contains(&key) {
             continue;
@@ -189,87 +186,39 @@ fn eval(start: State, disabled: &HashSet<Position>) {
         if state.time > best_time {
             continue;
         }
-
-        for b in state.blizzards.iter_mut() {
-            b.update_position(&state.exit);
-            occupied.insert(b.position);
+        if state.time > time_limit {
+            continue;
         }
+        state.time += 1;
 
         let mut new_positions = vec![];
 
-        // new_positions.push((state.group.0 + 1, state.group.1 + 1));
         new_positions.push((state.group.0 + 1, state.group.1));
         new_positions.push((state.group.0, state.group.1 + 1));
 
         if state.group.0 > 0 {
             new_positions.push((state.group.0 - 1, state.group.1));
-            // new_positions.push((state.group.0 - 1, state.group.1 + 1));
         }
         if state.group.1 > 0 {
             new_positions.push((state.group.0, state.group.1 - 1));
-            // new_positions.push((state.group.0 + 1, state.group.1 - 1));
         }
 
         new_positions.push((state.group.0, state.group.1));
-        // if state.group.0 > 0 && state.group.1 > 0 {
-        //     new_positions.push((state.group.0 - 1, state.group.1 - 1));
-        // }
+
+        new_positions.sort_by(|a, b| dist(b, &state.exit).cmp(&dist(a, &state.exit)));
 
         new_positions
             .iter()
-            .filter(|p| !disabled.contains(p) && !occupied.contains(p))
+            .filter(|p| !disabled.contains(p) && !blizzards.get(&state.time).unwrap().contains(p))
             .for_each(|next_group_position| {
                 let mut next_state = state.clone();
                 next_state.group = *next_group_position;
-                // draw(&next_state, disabled);
-                // next_state.history.push(state.clone());
-                // if next_state.dist() <= dist_to_exit {
-                //     dist_to_exit = dist_to_exit.min(next_state.dist());
                 deq.push_back(next_state);
-                // } else {
-                //     deq.push_back(next_state);
-                // }
             });
     }
 
-    println!("Best : {}", best_time - 1);
-    // println!("{:?}", best);
-
-    for s in best.history.iter() {
-        println!("Minute: {}", s.time + 1);
-        draw(s, disabled)
-    }
-    draw(&best, disabled)
-}
-
-fn draw(state: &State, disabled: &HashSet<Position>) {
-    for y in 0..=state.exit.1 {
-        for x in 0..=state.exit.0 + 1 {
-            if state.group == (x, y) {
-                print!("G");
-                continue;
-            }
-            if state.exit == (x, y) {
-                print!("X");
-                continue;
-            }
-            if disabled.contains(&(x, y)) {
-                print!("#");
-                continue;
-            }
-            let blizzards_at_position: Vec<&Blizzard> = state
-                .blizzards
-                .iter()
-                .filter(|b| b.position == (x, y))
-                .collect();
-            match blizzards_at_position.len() {
-                0 => print!("."),
-                1 => print!("{}", blizzards_at_position.first().unwrap().direction),
-                more => print!("{}", more),
-            }
-        }
-        println!()
-    }
+    println!("Best : {}", best_time);
+    return best;
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<std::fs::File>>>
