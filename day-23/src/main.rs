@@ -2,323 +2,198 @@
 // #![allow(unused_variables)]
 // #![allow(unused_imports)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{hash_map, HashMap, HashSet, VecDeque};
 use std::io::{self, BufRead};
 use std::path::Path;
 
+#[derive(Debug, Clone)]
+enum Direction {
+    N,
+    S,
+    W,
+    E,
+}
+
+impl Direction {
+    fn from_position(&self, p: &(i32, i32)) -> Vec<(i32, i32)> {
+        match self {
+            Direction::N => vec![(p.0 - 1, p.1 - 1), (p.0, p.1 - 1), (p.0 + 1, p.1 - 1)],
+            Direction::S => vec![(p.0 - 1, p.1 + 1), (p.0, p.1 + 1), (p.0 + 1, p.1 + 1)],
+            Direction::W => vec![(p.0 - 1, p.1 - 1), (p.0 - 1, p.1), (p.0 - 1, p.1 + 1)],
+            Direction::E => vec![(p.0 + 1, p.1 - 1), (p.0 + 1, p.1), (p.0 + 1, p.1 + 1)],
+        }
+    }
+    fn into_direction(&self, p: &(i32, i32)) -> (i32, i32) {
+        match self {
+            Direction::N => (p.0, p.1 - 1),
+            Direction::S => (p.0, p.1 + 1),
+            Direction::W => (p.0 - 1, p.1),
+            Direction::E => (p.0 + 1, p.1),
+        }
+    }
+}
+
 #[derive(Debug)]
-enum Node {
-    Value(f64),
-    Divide(String, String),
-    Multiply(String, String),
-    Subtract(String, String),
-    Add(String, String),
-    Compare(String, String),
-    Guess,
+struct Elf {
+    position: (i32, i32),
+    directions: VecDeque<Direction>,
+    decision: Option<(i32, i32)>,
+}
+
+impl Elf {
+    fn new(x: i32, y: i32) -> Elf {
+        let mut directions = VecDeque::new();
+        directions.push_back(Direction::N);
+        directions.push_back(Direction::S);
+        directions.push_back(Direction::W);
+        directions.push_back(Direction::E);
+
+        Elf {
+            position: (x, y),
+            directions,
+            decision: None,
+        }
+    }
+
+    fn decide(
+        &mut self,
+        occupied_positions: &HashSet<(i32, i32)>,
+        proposed_positions: &mut HashMap<(i32, i32), i32>,
+    ) {
+        let mut surrounding = vec![];
+        let mut new_directions = self.directions.clone();
+        let xpe = new_directions.pop_front().unwrap();
+        new_directions.push_back(xpe.clone());
+
+        for dir in self.directions.iter() {
+            for p in dir.from_position(&self.position) {
+                surrounding.push(p)
+            }
+        }
+        let is_alone = surrounding
+            .iter()
+            .filter(|p| occupied_positions.contains(p))
+            .count()
+            == 0;
+        if !is_alone {
+            for (dir_i, dir) in self.directions.iter().enumerate() {
+                let looked_at_positions = dir.from_position(&self.position);
+                let is_free = looked_at_positions
+                    .iter()
+                    .filter(|p| occupied_positions.contains(p))
+                    .count();
+
+                if is_free == 0 {
+                    // println!("{:?} selected {:?}", self.position, dir);
+                    let next_position = dir.into_direction(&self.position);
+                    self.decision = Some(next_position);
+                    match proposed_positions.get(&next_position) {
+                        Some(c) => {
+                            proposed_positions.insert(next_position, c + 1);
+                        }
+                        None => {
+                            proposed_positions.insert(next_position, 1);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.directions = new_directions;
+    }
+
+    fn move_if_possible(&mut self, proposed_positions: &HashMap<(i32, i32), i32>) -> bool {
+        let mut moved = false;
+        if let Some(next_position) = self.decision {
+            match proposed_positions.get(&next_position) {
+                Some(c) => {
+                    if *c == 1 {
+                        self.position = next_position;
+                        moved = true;
+                    }
+                }
+                None => {
+                    unreachable!()
+                }
+            }
+        }
+        self.decision = None;
+        moved
+    }
 }
 
 fn main() {
-    part1();
-    part2();
-}
-
-fn part1() {
-    let mut monkeys: HashMap<String, f64> = HashMap::new();
+    let mut elves = vec![];
     if let Ok(lines) = read_lines("input.txt") {
-        let mut input: VecDeque<String> = lines.into_iter().map(|l| l.unwrap()).collect();
+        let input: Vec<String> = lines.into_iter().map(|l| l.unwrap()).collect();
 
-        while let Some(entry) = input.pop_front() {
-            let p: Vec<&str> = entry.split(": ").into_iter().collect();
-            match p[1].parse::<f64>() {
-                Ok(value) => {
-                    monkeys.insert(p[0].to_string(), value);
+        for row in input.into_iter().enumerate() {
+            for col in row.1.chars().into_iter().enumerate() {
+                if col.1 == '#' {
+                    elves.push(Elf::new(col.0 as i32, row.0 as i32))
                 }
-                Err(_) => {
-                    let equasion: Vec<&str> = p[1].split(" ").into_iter().collect();
-
-                    match (monkeys.get(equasion[0]), monkeys.get(equasion[2])) {
-                        (Some(a), Some(b)) => {
-                            if p[0] == "root" {}
-                            match equasion[1] {
-                                "/" => monkeys.insert(p[0].to_owned(), a / b),
-                                "*" => monkeys.insert(p[0].to_owned(), a * b),
-                                "+" => monkeys.insert(p[0].to_owned(), a + b),
-                                "-" => monkeys.insert(p[0].to_owned(), a - b),
-                                _ => unreachable!(),
-                            };
-                        }
-                        _ => {
-                            input.push_back(entry);
-                        }
-                    };
-                }
-            }
-        }
-
-        println!("Part 1: {}", monkeys.get("root").unwrap())
-    }
-}
-
-fn part2() {
-    let mut operations: HashMap<String, Node> = HashMap::new();
-    if let Ok(lines) = read_lines("input.txt") {
-        let mut input: VecDeque<String> = lines.into_iter().map(|l| l.unwrap()).collect();
-
-        while let Some(entry) = input.pop_front() {
-            let p: Vec<&str> = entry.split(": ").into_iter().collect();
-
-            match p[0] {
-                "humn" => {
-                    operations.insert("humn".to_owned(), Node::Guess);
-                }
-                _ => match p[1].parse::<f64>() {
-                    Ok(value) => {
-                        operations.insert(p[0].to_string(), Node::Value(value));
-                    }
-                    Err(_) => {
-                        let equasion: Vec<&str> = p[1].split(" ").into_iter().collect();
-                        match p[0] {
-                            "root" => {
-                                operations.insert(
-                                    "root".to_owned(),
-                                    Node::Compare(equasion[0].to_owned(), equasion[2].to_owned()),
-                                );
-                            }
-                            _ => {
-                                let op = match equasion[1] {
-                                    "/" => {
-                                        Node::Divide(equasion[0].to_owned(), equasion[2].to_owned())
-                                    }
-
-                                    "*" => Node::Multiply(
-                                        equasion[0].to_owned(),
-                                        equasion[2].to_owned(),
-                                    ),
-
-                                    "+" => {
-                                        Node::Add(equasion[0].to_owned(), equasion[2].to_owned())
-                                    }
-
-                                    "-" => Node::Subtract(
-                                        equasion[0].to_owned(),
-                                        equasion[2].to_owned(),
-                                    ),
-
-                                    _ => unreachable!(),
-                                };
-                                operations.insert(p[0].to_string(), op);
-                            }
-                        };
-                    }
-                },
             }
         }
     }
+    count_free_spaces(&elves);
+    let mut lc = 0;
+    loop {
+        let mut occupied_positions = HashSet::new();
+        elves.iter().for_each(|e| {
+            occupied_positions.insert(e.position);
+        });
 
-    let mut optimized_nodes = HashMap::new();
-    let mut cached_results = HashMap::new();
-    replace_operations_with_values(
-        "root",
-        &operations,
-        &mut optimized_nodes,
-        &mut cached_results,
-    );
-
-    println!(
-        "Part 2 Expression: {}",
-        stringify(operations.get("root").unwrap(), &optimized_nodes)
-    );
-    println!("Part 2:  {:.4}", unwind(&optimized_nodes, &cached_results))
-}
-
-fn unwind(nodes: &HashMap<String, Node>, cached_results: &HashMap<String, f64>) -> f64 {
-    let mut deq = VecDeque::new();
-    deq.push_back(nodes.get("root").unwrap());
-    let mut target = 0.0;
-    while let Some(node) = deq.pop_front() {
-        if let Node::Compare(a, b) = node {
-            if let Some(v) = cached_results.get(a) {
-                target = -1.0 * *v;
-                deq.push_front(nodes.get(b).unwrap());
-                continue;
-            }
-
-            if let Some(v) = cached_results.get(b) {
-                target = -1.0 * *v;
-                deq.push_front(nodes.get(a).unwrap());
-                continue;
+        let mut proposed_positions: HashMap<(i32, i32), i32> = HashMap::new();
+        for elf in elves.iter_mut() {
+            elf.decide(&occupied_positions, &mut proposed_positions);
+        }
+        let mut moved = false;
+        for elf in elves.iter_mut() {
+            if elf.move_if_possible(&proposed_positions) {
+                moved = true;
             }
         }
-
-        if let Node::Divide(a, b) = node {
-            if let Some(v) = cached_results.get(a) {
-                target /= *v;
-                deq.push_front(nodes.get(b).unwrap());
-                continue;
-            }
-
-            if let Some(v) = cached_results.get(b) {
-                target *= *v;
-                deq.push_front(nodes.get(a).unwrap());
-                continue;
-            }
-        }
-
-        if let Node::Add(a, b) = node {
-            if let Some(v) = cached_results.get(a) {
-                target -= *v;
-                deq.push_front(nodes.get(b).unwrap());
-                continue;
-            }
-
-            if let Some(v) = cached_results.get(b) {
-                target -= *v;
-                deq.push_front(nodes.get(a).unwrap());
-                continue;
-            }
-        }
-
-        if let Node::Subtract(a, b) = node {
-            if let Some(v) = cached_results.get(a) {
-                target = target + v;
-                deq.push_front(nodes.get(b).unwrap());
-                continue;
-            }
-
-            if let Some(v) = cached_results.get(b) {
-                target += *v;
-                deq.push_front(nodes.get(a).unwrap());
-                continue;
-            }
-        }
-
-        if let Node::Multiply(a, b) = node {
-            if let Some(v) = cached_results.get(a) {
-                target /= *v;
-                deq.push_front(nodes.get(b).unwrap());
-                continue;
-            }
-
-            if let Some(v) = cached_results.get(b) {
-                target /= *v;
-                deq.push_front(nodes.get(a).unwrap());
-                continue;
-            }
-        }
-    }
-
-    target
-}
-
-fn replace_operations_with_values(
-    node_id: &str,
-    nodes: &HashMap<String, Node>,
-    optimized: &mut HashMap<String, Node>,
-    cached_results: &mut HashMap<String, f64>,
-) {
-    let node = nodes.get(node_id).unwrap();
-    match node {
-        Node::Guess => {
-            optimized.insert(node_id.to_owned(), Node::Guess);
-        }
-        Node::Compare(a, b) => {
-            replace_operations_with_values(a, nodes, optimized, cached_results);
-            replace_operations_with_values(b, nodes, optimized, cached_results);
-            optimized.insert(node_id.to_owned(), Node::Compare(a.clone(), b.clone()));
-        }
-        Node::Value(v) => {
-            cached_results.insert(node_id.to_owned(), *v);
-            optimized.insert(node_id.to_owned(), Node::Value(*v));
-        }
-        Node::Divide(a, b) => {
-            replace_operations_with_values(a, nodes, optimized, cached_results);
-            replace_operations_with_values(b, nodes, optimized, cached_results);
-            match (cached_results.get(a), cached_results.get(b)) {
-                (Some(av), Some(bv)) => {
-                    let calculated = av / bv;
-                    cached_results.insert(node_id.to_owned(), calculated);
-                    optimized.insert(node_id.to_owned(), Node::Value(calculated));
-                }
-                _ => {
-                    optimized.insert(node_id.to_owned(), Node::Divide(a.clone(), b.clone()));
-                }
-            }
-        }
-        Node::Multiply(a, b) => {
-            replace_operations_with_values(a, nodes, optimized, cached_results);
-            replace_operations_with_values(b, nodes, optimized, cached_results);
-            match (cached_results.get(a), cached_results.get(b)) {
-                (Some(av), Some(bv)) => {
-                    let calculated = av * bv;
-                    cached_results.insert(node_id.to_owned(), calculated);
-                    optimized.insert(node_id.to_owned(), Node::Value(calculated));
-                }
-                _ => {
-                    optimized.insert(node_id.to_owned(), Node::Multiply(a.clone(), b.clone()));
-                }
-            }
-        }
-        Node::Subtract(a, b) => {
-            replace_operations_with_values(a, nodes, optimized, cached_results);
-            replace_operations_with_values(b, nodes, optimized, cached_results);
-            match (cached_results.get(a), cached_results.get(b)) {
-                (Some(av), Some(bv)) => {
-                    let calculated = av - bv;
-                    cached_results.insert(node_id.to_owned(), calculated);
-                    optimized.insert(node_id.to_owned(), Node::Value(calculated));
-                }
-                _ => {
-                    optimized.insert(node_id.to_owned(), Node::Subtract(a.clone(), b.clone()));
-                }
-            }
-        }
-        Node::Add(a, b) => {
-            replace_operations_with_values(a, nodes, optimized, cached_results);
-            replace_operations_with_values(b, nodes, optimized, cached_results);
-            match (cached_results.get(a), cached_results.get(b)) {
-                (Some(av), Some(bv)) => {
-                    let calculated = av + bv;
-                    cached_results.insert(node_id.to_owned(), calculated);
-                    optimized.insert(node_id.to_owned(), Node::Value(calculated));
-                }
-                _ => {
-                    optimized.insert(node_id.to_owned(), Node::Add(a.clone(), b.clone()));
-                }
-            }
+        // count_free_spaces(&elves);
+        lc += 1;
+        if moved == false {
+            println!("LC :{}", lc);
+            break;
         }
     }
 }
 
-fn stringify(node: &Node, nodes: &HashMap<String, Node>) -> String {
-    match node {
-        Node::Value(v) => format!("{}", v),
-        Node::Divide(a, b) => format!(
-            "({}/{})",
-            stringify(nodes.get(a).unwrap(), nodes),
-            stringify(nodes.get(b).unwrap(), nodes)
-        ),
-        Node::Multiply(a, b) => format!(
-            "({}*{})",
-            stringify(nodes.get(a).unwrap(), nodes),
-            stringify(nodes.get(b).unwrap(), nodes)
-        ),
-        Node::Subtract(a, b) => format!(
-            "({}-{})",
-            stringify(nodes.get(a).unwrap(), nodes),
-            stringify(nodes.get(b).unwrap(), nodes)
-        ),
-        Node::Add(a, b) => format!(
-            "({}+{})",
-            stringify(nodes.get(a).unwrap(), nodes),
-            stringify(nodes.get(b).unwrap(), nodes)
-        ),
-        Node::Compare(a, b) => format!(
-            "{} == {}",
-            stringify(nodes.get(a).unwrap(), nodes),
-            stringify(nodes.get(b).unwrap(), nodes)
-        ),
-        Node::Guess => " HUMN ".to_owned(),
+fn count_free_spaces(elves: &Vec<Elf>) {
+    let mut x_min = i32::MAX;
+    let mut x_max = i32::MIN;
+    let mut y_min = i32::MAX;
+    let mut y_max = i32::MIN;
+
+    let mut known_positions = HashSet::new();
+
+    for elf in elves.iter() {
+        x_min = x_min.min(elf.position.0);
+        x_max = x_max.max(elf.position.0);
+        y_min = y_min.min(elf.position.1);
+        y_max = y_max.max(elf.position.1);
+        known_positions.insert(elf.position);
     }
+
+    let mut area = 0;
+    for y in y_min..=y_max {
+        // print!("{:4} ", y);
+        for x in x_min..=x_max {
+            if known_positions.get(&(x, y)).is_none() {
+                // print!(".");
+                area += 1
+            } else {
+                // print!("#")
+            }
+        }
+        // println!()
+    }
+
+    println!("Area: {}", area);
 }
 
 fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<std::fs::File>>>
